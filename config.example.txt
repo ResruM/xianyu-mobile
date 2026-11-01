@@ -1,0 +1,24 @@
+# 闲鱼 AI 自动回复 - 配置文件模板
+# 使用方法：把下面几行填好，保存后运行
+#   python3 setup.py --file config.txt
+#
+# 提示：iSH 里如果终端输入困难，用这个文件配置最省事
+
+# 选哪个模型平台：1=DeepSeek 2=通义千问 3=Kimi 4=智谱 5=自定义
+PROVIDER=1
+
+# 你的 API Key（去 platform.deepseek.com 创建）
+API_KEY=
+
+# 闲鱼 Cookie（电脑浏览器 F12 抓，必须含 unb=）
+COOKIES_STR=
+
+# 下面可不填，留空则用所选平台的默认值
+# MODEL_BASE_URL=https://api.deepseek.com/v1
+# MODEL_NAME=deepseek-chat
+
+# 人工接管切换词
+TOGGLE_KEYWORDS=。
+
+# 模拟真人打字延迟
+SIMULATE_HUMAN_TYPING=True
