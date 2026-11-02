@@ -1,4 +1,5 @@
 import base64
+import sqlite3
 import json
 import asyncio
 import time
@@ -377,9 +378,15 @@ class XianyuLive:
 
             # 从消息里取商品ID和会话ID
             raw = json.dumps(message, ensure_ascii=False)
+            # 诊断：把完整订单消息写进日志，方便定位字段
+            logger.warning(f'[订单诊断] 完整消息: {raw[:1500]}')
+
             item_id = None
-            if 'itemId=' in raw:
-                item_id = raw.split('itemId=')[1].split('&')[0].split('"')[0]
+            # 尝试多种可能的字段名
+            for key in ('itemId=', 'item_id=', 'idle_item_id=', 'idleitemid='):
+                if key in raw:
+                    item_id = raw.split(key)[1].split('&')[0].split('"')[0].split(',')[0].split('}')[0]
+                    break
 
             chat_part = message.get('1', '')
             chat_id = str(chat_part).split('@')[0] if chat_part else None
@@ -391,9 +398,26 @@ class XianyuLive:
                 logger.warning('付款消息里没找到会话ID，无法自动发货')
                 return
 
-            info = cfg.get(str(item_id))
+            info = cfg.get(str(item_id)) if item_id else None
+
+            # 兜底：找不到商品ID时，查这个会话最近聊的是哪个商品
+            if not info and chat_id:
+                try:
+                    conn = sqlite3.connect('data/chat_history.db', timeout=5)
+                    row = conn.execute(
+                        "select item_id from messages where chat_id=? "
+                        "order by id desc limit 1", (str(chat_id),)
+                    ).fetchone()
+                    conn.close()
+                    if row and row[0]:
+                        item_id = str(row[0])
+                        info = cfg.get(item_id)
+                        logger.info(f'通过会话历史找到商品ID: {item_id}')
+                except Exception as e:
+                    logger.debug(f'查会话历史失败: {e}')
+
             if not info:
-                logger.info(f'商品 {item_id} 未配置自动发货')
+                logger.info(f'商品 {item_id} 未配置自动发货，跳过')
                 return
 
             text = build_message(info)
