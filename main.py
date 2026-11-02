@@ -15,6 +15,7 @@ from utils.xianyu_utils import generate_mid, generate_uuid, trans_cookies, gener
 from XianyuAgent import XianyuReplyBot
 from context_manager import ChatContextManager
 from knowledge import load_knowledge, format_for_prompt
+from delivery import load_delivery, build_message, already_sent, mark_sent
 
 
 class XianyuLive:
@@ -366,6 +367,53 @@ class XianyuLive:
 
         return result
 
+    async def auto_deliver(self, message, websocket, buyer_id):
+        """买家付款后自动发送网盘链接"""
+        try:
+            cfg = load_delivery()
+            if not cfg:
+                logger.debug('未配置自动发货，跳过')
+                return
+
+            # 从消息里取商品ID和会话ID
+            raw = json.dumps(message, ensure_ascii=False)
+            item_id = None
+            if 'itemId=' in raw:
+                item_id = raw.split('itemId=')[1].split('&')[0].split('"')[0]
+
+            chat_part = message.get('1', '')
+            chat_id = str(chat_part).split('@')[0] if chat_part else None
+
+            if not item_id:
+                logger.warning('付款消息里没找到商品ID，无法自动发货')
+                return
+            if not chat_id:
+                logger.warning('付款消息里没找到会话ID，无法自动发货')
+                return
+
+            info = cfg.get(str(item_id))
+            if not info:
+                logger.info(f'商品 {item_id} 未配置自动发货')
+                return
+
+            text = build_message(info)
+            if not text:
+                logger.warning(f'商品 {item_id} 的发货链接为空')
+                return
+
+            # 防重复发货
+            order_key = f"{item_id}:{chat_id}"
+            if already_sent(order_key):
+                logger.info(f'已给会话 {chat_id} 发过货，跳过重复发送')
+                return
+
+            await self.send_msg(websocket, chat_id, buyer_id, text)
+            mark_sent(order_key)
+            logger.info(f'✅ 已自动发货: 商品 {item_id} -> 买家 {buyer_id}')
+
+        except Exception as e:
+            logger.error(f'自动发货异常: {e}')
+
     async def handle_message(self, message_data, websocket):
         """处理所有类型的消息"""
         try:
@@ -433,6 +481,11 @@ class XianyuLive:
                     user_id = message['1'].split('@')[0]
                     user_url = f'https://www.goofish.com/personal?userId={user_id}'
                     logger.info(f'交易成功 {user_url} 等待卖家发货')
+                    # 自动发货
+                    try:
+                        await self.auto_deliver(message, websocket, user_id)
+                    except Exception as e:
+                        logger.error(f'自动发货出错: {e}')
                     return
 
             except:
